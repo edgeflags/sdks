@@ -29,5 +29,14 @@
     "typescript": "^5.7.0"
   },
   "keywords": ["feature-flags", "edgeflags", "sdk"],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/edgeflags/sdks.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://docs.edgeflags.net/guides/client-sdks/",
+  "bugs": {
+    "url": "https://github.com/edgeflags/sdks/issues"
+  }
 }
