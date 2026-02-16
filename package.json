@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "vitest run",
+    "typecheck": "pnpm -r run typecheck",
+    "clean": "pnpm -r run clean"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0",
+    "typescript": "^5.7.0"
+  }
+}
