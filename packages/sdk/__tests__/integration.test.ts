@@ -32,6 +32,7 @@ describe('Integration: init -> poll -> change cycle', () => {
       token: 'ff_test_123',
       baseUrl: 'https://edgeflags.net',
       pollingInterval: 5000,
+      transport: 'polling',
       context: { user_id: 'u1', custom: {} },
     });
 

@@ -6,6 +6,8 @@ export type {
   EvaluationContext,
   EvaluationResponse,
   ChangeEvent,
+  ConnectionStatus,
+  ConnectionEvent,
   EdgeFlagsOptions,
   EdgeFlagsEvent,
   EventPayloadMap,

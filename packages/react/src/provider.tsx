@@ -10,6 +10,7 @@ export interface EdgeFlagsProviderProps {
   baseUrl?: string;
   context?: EvaluationContext;
   pollingInterval?: number;
+  transport?: EdgeFlagsOptions['transport'];
   bootstrap?: EdgeFlagsOptions['bootstrap'];
   debug?: boolean;
 }
@@ -21,6 +22,7 @@ export function EdgeFlagsProvider({
   baseUrl,
   context,
   pollingInterval,
+  transport,
   bootstrap,
   debug,
 }: EdgeFlagsProviderProps) {
@@ -41,6 +43,7 @@ export function EdgeFlagsProvider({
       baseUrl,
       context,
       pollingInterval,
+      transport,
       bootstrap,
       debug,
     });

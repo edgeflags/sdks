@@ -25,6 +25,7 @@ export interface EdgeFlagsOptions {
   baseUrl: string;
   context?: EvaluationContext;
   pollingInterval?: number;
+  transport?: 'websocket' | 'polling';
   bootstrap?: {
     flags?: Record<string, FlagValue>;
     configs?: Record<string, unknown>;
@@ -32,10 +33,17 @@ export interface EdgeFlagsOptions {
   debug?: boolean;
 }
 
-export type EdgeFlagsEvent = 'ready' | 'change' | 'error';
+export type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected';
+
+export interface ConnectionEvent {
+  status: ConnectionStatus;
+}
+
+export type EdgeFlagsEvent = 'ready' | 'change' | 'error' | 'connection';
 
 export type EventPayloadMap = {
   ready: undefined;
   change: ChangeEvent;
   error: Error;
+  connection: ConnectionEvent;
 };

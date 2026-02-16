@@ -4,7 +4,7 @@ import type {
   EdgeFlagsOptions,
   EdgeFlagsEvent,
   EventPayloadMap,
-  ChangeEvent,
+  ConnectionStatus,
 } from './types.js';
 import { EdgeFlagsError } from './errors.js';
 import { Logger } from './logger.js';
@@ -12,6 +12,7 @@ import { Emitter } from './emitter.js';
 import { Cache } from './cache.js';
 import { Fetcher } from './fetcher.js';
 import { Poller } from './poller.js';
+import { StreamTransport, type DiffChange } from './stream.js';
 
 interface MockData {
   flags: Record<string, FlagValue>;
@@ -27,10 +28,15 @@ export class EdgeFlags {
   private logger: Logger;
   private fetcher: Fetcher | null;
   private poller: Poller | null = null;
+  private stream: StreamTransport | null = null;
   private context: EvaluationContext;
   private pollingInterval: number;
+  private transportMode: 'websocket' | 'polling';
   private ready = false;
   private mockData: MockData | null;
+  private _connectionStatus: ConnectionStatus = 'disconnected';
+  private baseUrl: string;
+  private token: string;
 
   constructor(options: EdgeFlagsOptions) {
     const mock = (options as EdgeFlagsOptions & { _mock?: MockData })._mock ?? null;
@@ -40,6 +46,9 @@ export class EdgeFlags {
     this.logger = new Logger(options.debug ?? false);
     this.context = options.context ?? { ...DEFAULT_CONTEXT };
     this.pollingInterval = options.pollingInterval ?? DEFAULT_POLL_INTERVAL;
+    this.transportMode = options.transport ?? 'websocket';
+    this.baseUrl = options.baseUrl;
+    this.token = options.token;
 
     if (mock) {
       this.fetcher = null;
@@ -64,6 +73,66 @@ export class EdgeFlags {
       return;
     }
 
+    if (this.transportMode !== 'polling') {
+      try {
+        await this.initStream();
+        return;
+      } catch {
+        this.logger.warn('WebSocket unavailable, falling back to polling');
+      }
+    }
+
+    await this.initPolling();
+  }
+
+  private async initStream(): Promise<void> {
+    const snapshotReceived = new Promise<void>((resolve, reject) => {
+      let resolved = false;
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          reject(new Error('Snapshot timeout'));
+        }
+      }, 10_000);
+
+      this.stream = new StreamTransport(this.baseUrl, this.token, {
+        onSnapshot: (flags, configs) => {
+          const changes = this.cache.update(flags, configs);
+          if (!resolved) {
+            resolved = true;
+            clearTimeout(timeout);
+            this.cache.seed(flags, configs);
+            resolve();
+          } else if (changes) {
+            this.logger.debug('Stream snapshot changes', changes);
+            this.emitter.emit('change', changes);
+          }
+        },
+        onDiff: (diffChanges) => {
+          this.applyDiff(diffChanges);
+        },
+        onConnectionChange: (status) => {
+          this._connectionStatus = status;
+          this.emitter.emit('connection', { status });
+        },
+        onError: (err) => {
+          this.logger.error('Stream error', err);
+          this.emitter.emit('error', err);
+        },
+        logger: this.logger,
+      });
+    });
+
+    await this.stream!.connect();
+    this.stream!.subscribe(this.context.environment, this.context);
+    await snapshotReceived;
+
+    this.ready = true;
+    this.logger.debug('Initialized via WebSocket');
+    this.emitter.emit('ready', undefined);
+  }
+
+  private async initPolling(): Promise<void> {
     try {
       await this.fetchAndSeed();
       this.ready = true;
@@ -95,6 +164,28 @@ export class EdgeFlags {
     }
   }
 
+  private applyDiff(changes: DiffChange[]): void {
+    const flags: Record<string, FlagValue> = {};
+    const configs: Record<string, unknown> = {};
+
+    for (const change of changes) {
+      if (change.type === 'flag') {
+        flags[change.key] = change.value as FlagValue;
+      } else if (change.type === 'config') {
+        configs[change.key] = change.value;
+      }
+    }
+
+    const existing = { ...this.cache.allFlags(), ...flags };
+    const existingConfigs = { ...this.cache.allConfigs(), ...configs };
+    const cacheChanges = this.cache.update(existing, existingConfigs);
+
+    if (cacheChanges) {
+      this.logger.debug('Diff changes detected', cacheChanges);
+      this.emitter.emit('change', cacheChanges);
+    }
+  }
+
   flag(key: string): FlagValue | undefined;
   flag<T extends FlagValue>(key: string, defaultValue: T): T;
   flag(key: string, defaultValue?: FlagValue): FlagValue | undefined {
@@ -122,7 +213,9 @@ export class EdgeFlags {
   async identify(context: EvaluationContext): Promise<void> {
     this.context = context;
     this.logger.debug('Context updated', context);
-    if (this.ready && this.fetcher) {
+    if (this.ready && this.stream?.connected) {
+      this.stream.updateContext(context);
+    } else if (this.ready && this.fetcher) {
       await this.refresh();
     }
   }
@@ -159,12 +252,19 @@ export class EdgeFlags {
     return this.ready;
   }
 
+  get connectionStatus(): ConnectionStatus {
+    return this._connectionStatus;
+  }
+
   destroy(): void {
+    this.stream?.close();
+    this.stream = null;
     this.poller?.stop();
     this.poller = null;
     this.cache.clear();
     this.emitter.removeAll();
     this.ready = false;
+    this._connectionStatus = 'disconnected';
     this.logger.debug('Destroyed');
   }
 }
